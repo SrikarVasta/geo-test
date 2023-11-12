@@ -225,7 +225,7 @@
 
     function animateCircle(time) {
       let progress =
-        (time - startTimeCircle) / (squarePathData?.duration * 0.1 || 10000);
+        (time - startTimeCircle) / (circPath?.duration * 0.1 || 10000);
       let newPos = calculateNewCirclePosition(progress);
       //animate
       markerGraphicsCircle.clear();
