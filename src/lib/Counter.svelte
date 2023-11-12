@@ -4,15 +4,19 @@
   import * as PIXI from "pixi.js";
   import "leaflet-pixi-overlay";
   import "leaflet-geometryutil";
+  import * as turf from "@turf/turf";
 
   let map;
   let mapContainer;
-  let startTime;
+  let startTimeSquare, startTimeCircle;
   let project;
   let renderer;
 
   const createMap = (container) => {
-    const map = L.map(container).setView([51.5074, -0.1278], 8);
+    const map = L.map(container).setView(
+      [56.94783079082404, 26.214645326303554],
+      7
+    );
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "© OpenStreetMap contributors",
     }).addTo(map);
@@ -21,7 +25,7 @@
 
   function destination(latlng, heading, distance) {
     heading = (heading + 360) % 360;
-    var rad = Math.PI / 180,
+    let rad = Math.PI / 180,
       radInv = 180 / Math.PI,
       R = L.CRS.Earth.R, // approximation of Earth's radius
       lon1 = latlng.lng * rad,
@@ -42,58 +46,89 @@
         );
     lon2 = lon2 * radInv;
     lon2 = lon2 > 180 ? lon2 - 360 : lon2 < -180 ? lon2 + 360 : lon2;
-    console.log(latlng, rad);
     return L.latLng([lat2 * radInv, lon2]);
   }
 
   function generateSquarePath(startPoint, numPoints, speedRange) {
-    // Generate random speed within the specified range
-    var speed = Math.random() * (speedRange[1] - speedRange[0]) + speedRange[0];
+    let speed = Math.random() * (speedRange[1] - speedRange[0]) + speedRange[0];
 
-    // Calculate destination point on the opposite side of the Earth
-
-    var destinationPoint = destination(
+    let destinationPoint = destination(
       {
         lat: startPoint[0],
         lng: startPoint[1],
       },
-      180,
-      40075
+      90, //
+      1000075
     );
     // Generate intermediate points
-    var path = [];
-    for (var i = 0; i <= numPoints; i++) {
-      var fraction = i / numPoints;
-      var lat =
+    let path = [];
+    for (let i = 0; i <= numPoints; i++) {
+      let fraction = i / numPoints;
+      let lat =
         startPoint[0] + fraction * (destinationPoint.lat - startPoint[0]);
-      var lon =
+      let lon =
         startPoint[1] + fraction * (destinationPoint.lng - startPoint[1]);
       path.push([lat, lon]);
     }
+    const point1 = L.latLng(path[0]);
+    const point2 = L.latLng(path[path.length - 1]);
+    const distance = point1.distanceTo(point2);
+    const duration = distance / speed; 
 
-    return { path: path, speed: speed };
+    return { path: path, duration: duration, speed: speed };
   }
 
-  function generateCircularPath(center, radius, numPoints, speedRange) {
-    // Generate random speed within the specified range
-    var speed = Math.random() * (speedRange[1] - speedRange[0]) + speedRange[0];
+  function genCirclePath(start, radius, speedRange) {
+    const speed =
+      Math.random() * (speedRange[1] - speedRange[0]) + speedRange[0];
 
-    // Generate circular path
-    var path = [];
-    for (var i = 0; i < numPoints; i++) {
-      var angle = (i / numPoints) * 2 * Math.PI;
-      var lat = center[0] + radius * Math.sin(angle);
-      var lon = center[1] + radius * Math.cos(angle);
-      path.push([lat, lon]);
+    function generateCircularPath(center, numPoints) {
+      const newRadius = Math.random() * (radius[1] - radius[0]) + radius[0];
+      const options = { steps: numPoints, units: "kilometers" };
+      const circle = turf.circle(center, newRadius, options);
+      return circle.geometry.coordinates;
     }
 
-    return { path: path, speed: speed };
+    function calculateLineLength(line) {
+      let length = 0;
+      for (let i = 1; i < line.length; i++) {
+        const point1 = line[i - 1];
+        const point2 = line[i];
+        const segmentLength = turf.distance(
+          turf.point(point1),
+          turf.point(point2),
+          { units: "kilometers" }
+        );
+        length += segmentLength;
+      }
+      return length;
+    }
+    const path = generateCircularPath(start, 1000);
+    console.log(path, "path");
+    const distance = calculateLineLength(path);
+    const duration = distance / speed;
+
+    return { path: path[0], duration: duration, speed: speed };
   }
 
   const makeSquare = () => {
     const markerGraphics = new PIXI.Graphics();
-    markerGraphics.beginFill(0xff0011);
-    markerGraphics.drawRect(0, 0, 80, 80); // (x, y, width, height)
+    markerGraphics.beginFill(0x4545ec);
+    markerGraphics.drawRect(0, 0, SCALE, SCALE); // (x, y, width, height)
+    markerGraphics.endFill();
+    return markerGraphics;
+  };
+  const SCALE = 15;
+  const redrawSquare = (markerGraphics) => {
+    markerGraphics.beginFill(0x4545ec);
+    markerGraphics.drawRect(0, 0, SCALE, SCALE); // (x, y, width, height)
+    markerGraphics.endFill();
+    return markerGraphics;
+  };
+
+  const redrawCircle = (markerGraphics) => {
+    markerGraphics.beginFill(0xff0000);
+    markerGraphics.drawCircle(0, 0, SCALE / 2); // (x, y, width, height)
     markerGraphics.endFill();
     return markerGraphics;
   };
@@ -101,20 +136,23 @@
   onMount(() => {
     map = createMap(mapContainer); // Adjust zoom level to view both cities
 
-    const markerGraphics = makeSquare();
-    const manchesterLatLng = [53.483959, -2.244644];
-    const londonLatLng = [51.5074, -0.1278];
+    let markerGraphicsSquare = makeSquare();
+
+    let markerGraphicsCircle = makeSquare();
 
     const pixiContainer = new PIXI.Container();
-    pixiContainer.addChild(markerGraphics);
+
+    pixiContainer.addChild(markerGraphicsSquare);
+    pixiContainer.addChild(markerGraphicsCircle);
+    const estiLatLng = [58.82583906333551, 25.807199605129426];
 
     const pixiOverlay = L.pixiOverlay((utils) => {
       const container = utils.getContainer();
       renderer = utils.getRenderer();
       project = utils.latLngToLayerPoint;
-      const markerCoords = project(manchesterLatLng);
-      markerGraphics.x = markerCoords.x;
-      markerGraphics.y = markerCoords.y;
+      const markerCoords = project(estiLatLng);
+      markerGraphicsCircle.x = markerGraphicsSquare.x = markerCoords.x;
+      markerGraphicsCircle.y = markerGraphicsSquare.y = markerCoords.y;
 
       renderer.render(container);
     }, pixiContainer);
@@ -122,103 +160,89 @@
     pixiOverlay.addTo(map);
 
     // Animation
-    startTime = performance.now();
+    startTimeSquare = performance.now();
+    startTimeCircle = performance.now();
+
     let returning = false;
-    var geojson = {
-      type: "FeatureCollection",
-      features: [
-        {
-          type: "Feature",
-          properties: {},
-          geometry: {
-            coordinates: [
-              [53.17838730321125, -2.3900698459790988],
-              [53.13265656132526, -2.3366857231972915],
-              [53.01352855156239, -2.3443120264516324],
-              [52.93086216177528, -2.1765333548529213],
-              [52.825002672488296, -2.146028141835359],
-              [52.71888464521027, -2.077391412544756],
-              [52.60787685889824, -2.05451250278162],
-              [52.52443590867378, -1.9477442572191421],
-              [52.39897668488675, -1.7952181921291697],
-              [52.32446169996717, -1.7952181921291697],
-              [52.268492969987676, -1.6579447335479358],
-              [52.18908282255464, -1.46728715218606],
-              [52.067357142987305, -1.3376399968592239],
-              [51.992283682956554, -1.2156191447879792],
-              [51.87943706598867, -1.162235022006115],
-              [51.7568661176235, -1.2079928415335814],
-              [51.52970459260999, -1.2766295708229904],
-              [51.40618327098318, -1.3071347838416898],
-              [51.26324292527315, -1.3147610870960875],
-              [51.27278614915406, -1.0478404731892397],
-              [51.310939229040684, -0.7961724657899083],
-              [51.37763085135853, -0.6207674909368279],
-              [51.41569678472058, -0.46061512259245774],
-              [51.46323466411033, -0.30046275424811597],
-            ],
-            type: "LineString",
-          },
-        },
-      ],
-    };
 
-    // Parse geoJSON data to get path
-    var squarePathData = generateSquarePath(manchesterLatLng, 100, [50, 80]);
-    const circularPath = generateCircularPath(
-      manchesterLatLng,
-      1500,
-      100,
-      [110, 300]
-    );
+    let squarePathData = generateSquarePath(estiLatLng, 100, [50, 80]);
+    let circPath = genCirclePath(estiLatLng, [10, 30], [100, 310]);
 
-    console.log({ circularPath });
-
-    var path = circularPath.path;
-    // Function to calculate new position
-    function calculateNewPosition(progress) {
-      // Ensure progress is within [0, 1]
+    let pathSquare = squarePathData.path;
+    let pathCircle = circPath.path;
+    function calculateNewSquarePosition(progress) {
       progress = Math.max(0, Math.min(1, progress));
 
-      var index = Math.floor(progress * (path.length - 1));
+      let index = Math.floor(progress * (pathSquare.length - 1));
 
-      // Ensure index is within [0, path.length - 2]
-      index = Math.max(0, Math.min(path.length - 2, index));
-      var start = path[index];
-      var end = path[index + 1];
+      index = Math.max(0, Math.min(pathSquare.length - 2, index));
+      const start = pathSquare[index];
+      const end = pathSquare[index + 1];
 
-      var segmentProgress = progress * (path.length - 1) - index;
-      var lat = start[0] + (end[0] - start[0]) * segmentProgress;
-      var lng = start[1] + (end[1] - start[1]) * segmentProgress;
+      const segmentProgress = progress * (pathSquare.length - 1) - index;
+      const lat = start[0] + (end[0] - start[0]) * segmentProgress;
+      const lng = start[1] + (end[1] - start[1]) * segmentProgress;
 
       return { lat: lat, lng: lng };
     }
 
-    function animate(time) {
-      var progress = (time - startTime) / 10000;
-      var newPos = calculateNewPosition(progress);
+    function calculateNewCirclePosition(progress) {
+      progress = Math.max(0, Math.min(1, progress));
 
+      let index = Math.floor(progress * (pathCircle.length - 1));
+
+      index = Math.max(0, Math.min(pathCircle.length - 2, index));
+      const start = pathCircle[index];
+      const end = pathCircle[index + 1];
+      const segmentProgress = progress * (pathCircle.length - 1) - index;
+      const lat = start[0] + (end[0] - start[0]) * segmentProgress;
+      const lng = start[1] + (end[1] - start[1]) * segmentProgress;
+
+      return { lat: lat, lng: lng };
+    }
+
+    function animateSquare(time) {
+      let progress =
+        (time - startTimeSquare) / (squarePathData?.duration || 10000);
+      let newPos = calculateNewSquarePosition(progress);
       //animate
-      // markerGraphics.clear();
-      markerGraphics.beginFill(0xff0000);
-      markerGraphics.drawRect(newPos.lat, newPos.lng, 80, 80);
-      markerGraphics.endFill();
-      var markerCoords = project([newPos.lat, newPos.lng]);
-      markerGraphics.x = markerCoords.x;
-      markerGraphics.y = markerCoords.y;
+      markerGraphicsSquare.clear();
+
+      markerGraphicsSquare = redrawSquare(markerGraphicsSquare);
+
+      let markerCoords = project([newPos.lat, newPos.lng]);
+      markerGraphicsSquare.x = markerCoords.x;
+      markerGraphicsSquare.y = markerCoords.y;
       if (progress < 1) {
-        // Continue the animation as long as the destination is not reached
-        requestAnimationFrame(animate);
+        requestAnimationFrame(animateSquare);
       } else {
-        // If the destination is reached, reverse the path and start again
-        path.reverse();
-        startTime = performance.now();
-        requestAnimationFrame(animate);
+        pathSquare.reverse();
+        startTimeSquare = performance.now();
+        requestAnimationFrame(animateSquare);
       }
       renderer.render(pixiContainer);
     }
 
-    requestAnimationFrame(animate);
+    function animateCircle(time) {
+      let progress =
+        (time - startTimeCircle) / (squarePathData?.duration * 0.1 || 10000);
+      let newPos = calculateNewCirclePosition(progress);
+      //animate
+      markerGraphicsCircle.clear();
+      markerGraphicsCircle = redrawCircle(markerGraphicsCircle);
+      let markerCoords = project([newPos.lat, newPos.lng]);
+      markerGraphicsCircle.x = markerCoords.x;
+      markerGraphicsCircle.y = markerCoords.y;
+      if (progress < 1) {
+        requestAnimationFrame(animateCircle);
+      } else {
+        markerGraphicsCircle.clear();
+      }
+      renderer.render(pixiContainer);
+    }
+
+    requestAnimationFrame(animateSquare);
+    requestAnimationFrame(animateCircle);
   });
 </script>
 

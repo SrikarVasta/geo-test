@@ -9,7 +9,7 @@
 </main>
 
 <style>
-  .main {
+  .main, #app {
     width: 100vw;
     height: 100vw;
     position: fixed;

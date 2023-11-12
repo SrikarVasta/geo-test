@@ -20,6 +20,7 @@
     "vite": "^4.4.5"
   },
   "dependencies": {
+    "@turf/turf": "^6.5.0",
     "leaflet": "^1.9.4",
     "leaflet-geometryutil": "^0.10.2",
     "leaflet-pixi-overlay": "^1.9.4",
